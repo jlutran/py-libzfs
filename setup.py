@@ -26,34 +26,31 @@
 
 import os
 import subprocess
+from sys import exit
 from distutils.core import setup
 from Cython.Distutils.extension import Extension
 from Cython.Distutils import build_ext
 
-if "FREEBSD_SRC" not in os.environ:
-    os.environ["FREEBSD_SRC"] = "/usr/src"
 
+if "ZOL_SRC" not in os.environ:
+    print 'Error : the ZOL_SRC env variable is not set'
+    exit(1)
+
+try:
+    zol_version = subprocess.check_output("modinfo zfs -F version", shell=True).strip().split('-')[0]
+    print 'ZOL version detected : %s' % zol_version
+except:
+    print 'Error : unable to get the ZFS module version'
+    exit(1)
 
 system_includes = [
-    "${FREEBSD_SRC}/cddl/lib/libumem",
-    "${FREEBSD_SRC}/sys/cddl/compat/opensolaris/",
-    "${FREEBSD_SRC}/sys/cddl/compat/opensolaris",
-    "${FREEBSD_SRC}/cddl/compat/opensolaris/include",
-    "${FREEBSD_SRC}/cddl/compat/opensolaris/lib/libumem",
-    "${FREEBSD_SRC}/cddl/contrib/opensolaris/lib/libzpool/common",
-    "${FREEBSD_SRC}/sys/cddl/contrib/opensolaris/common/zfs",
-    "${FREEBSD_SRC}/sys/cddl/contrib/opensolaris/uts/common/fs/zfs",
-    "${FREEBSD_SRC}/sys/cddl/contrib/opensolaris/uts/common/sys",
-    "${FREEBSD_SRC}/cddl/contrib/opensolaris/head",
-    "${FREEBSD_SRC}/sys/cddl/contrib/opensolaris/uts/common",
-    "${FREEBSD_SRC}/cddl/contrib/opensolaris/lib/libnvpair",
-    "${FREEBSD_SRC}/cddl/contrib/opensolaris/lib/libuutil/common",
-    "${FREEBSD_SRC}/cddl/contrib/opensolaris/lib/libzfs/common",
-    "${FREEBSD_SRC}/cddl/contrib/opensolaris/lib/libzfs_core/common"
+    "/usr/include",
+    "${ZOL_SRC}/include",
+    "${ZOL_SRC}/lib/libspl/include",
 ]
 
 system_includes = [os.path.expandvars(x) for x in system_includes]
-freebsd_version = int(subprocess.check_output("uname -K", shell=True).strip())
+zol_version = int(zol_version.replace('.', ''))
 
 setup(
     name='libzfs',
@@ -63,10 +60,10 @@ setup(
         Extension(
             "libzfs",
             ["libzfs.pyx"],
-            libraries=["nvpair", "zfs", "zfs_core", "uutil", "geom"],
+            libraries=["nvpair", "zfs", "zfs_core", "uutil"],
             extra_compile_args=["-DNEED_SOLARIS_BOOLEAN", "-D_XPG6", "-g", "-O0"],
             cython_include_dirs=["./pxd"],
-            cython_compile_time_env={'FREEBSD_VERSION': freebsd_version, 'TRUEOS': os.getenv('TRUEOS')},
+            cython_compile_time_env={'ZOL_VERSION': zol_version},
             include_dirs=system_includes,
             extra_link_args=["-g"],
         )

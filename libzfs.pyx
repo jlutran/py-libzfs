@@ -157,7 +157,7 @@ class VDevAuxState(enum.IntEnum):
     BAD_LOG = zfs.VDEV_AUX_BAD_LOG
     EXTERNAL = zfs.VDEV_AUX_EXTERNAL
     SPLIT_POOL = zfs.VDEV_AUX_SPLIT_POOL
-    ASHIFT_TOO_BIG = zfs.VDEV_AUX_ASHIFT_TOO_BIG    
+    #ASHIFT_TOO_BIG = zfs.VDEV_AUX_ASHIFT_TOO_BIG
 
 
 class PoolState(enum.IntEnum):
@@ -201,7 +201,7 @@ class PoolStatus(enum.IntEnum):
     RESILVERING = libzfs.ZPOOL_STATUS_RESILVERING
     OFFLINE_DEV = libzfs.ZPOOL_STATUS_OFFLINE_DEV
     REMOVED_DEV = libzfs.ZPOOL_STATUS_REMOVED_DEV
-    NON_NATIVE_ASHIFT = libzfs.ZPOOL_STATUS_NON_NATIVE_ASHIFT
+    #NON_NATIVE_ASHIFT = libzfs.ZPOOL_STATUS_NON_NATIVE_ASHIFT
     OK = libzfs.ZPOOL_STATUS_OK
 
 
@@ -241,7 +241,7 @@ class SendFlag(enum.Enum):
     EMBED_DATA = 9
 
 
-IF FREEBSD_VERSION >= 1000000:
+IF ZOL_VERSION >= 640:
     class SendFlags(enum.IntEnum):
         EMBED_DATA = libzfs.LZC_SEND_FLAG_EMBED_DATA
 
@@ -506,35 +506,22 @@ cdef class ZFS(object):
         if nomount:
             flags.nomount = True
 
-        IF FREEBSD_VERSION >= 1003000:
-            if resumable:
-                flags.resumable = True
+        # Zfs recv should prefetch indirect blocks (IllumOS #5960)
+        # https://github.com/zfsonlinux/zfs/commit/fcff0f35bd522076bdda7491c88a91cc0aa531a3
+        #
+        #IF ZOL_VERSION >= XXX:
+        #    if resumable:
+        #        flags.resumable = True
 
-        IF TRUEOS:
-            if props:
-                props_nvl = NVList(otherdict=props)
-            if limitds:
-                limitds_nvl = NVList(otherdict=limitds)
-
-            if libzfs.zfs_receive(
-                handle,
-                name,
-                &flags,
-                fd,
-                props_nvl.handle if props_nvl else NULL,
-                limitds_nvl.handle if limitds_nvl else NULL,
-                NULL) != 0:
-                raise self.get_error()
-        ELSE:
-            if props:
-                props_nvl = NVList(otherdict=props)
-
-            IF FREEBSD_VERSION > 1002000:
-                if libzfs.zfs_receive(handle, name, props_nvl.handle if props_nvl else NULL, &flags, fd, NULL) != 0:
-                    raise self.get_error()
-            ELSE:
-                if libzfs.zfs_receive(handle, name, props_nvl.handle if props_nvl else NULL, &flags, fd) != 0:
-                    raise self.get_error()
+        #IF ZOL_VERSION >= XXX:
+        #    if props:
+        #        props_nvl = NVList(otherdict=props)
+        #    if libzfs.zfs_receive(handle, name, props_nvl.handle if props_nvl else NULL,
+        #        &flags, fd, NULL) != 0:
+        #        raise self.get_error()
+        #ELSE:
+        if libzfs.zfs_receive(handle, name, &flags, fd, NULL) != 0:
+            raise self.get_error()
 
     def write_history(self, *args):
         history_message = ""
@@ -625,26 +612,29 @@ cdef class ZFS(object):
 
         return out
 
-    IF FREEBSD_VERSION >= 1003000:
-        def send_resume(self, fd, token, flags=None):
-            cdef libzfs.sendflags_t cflags
+    # Resumable send/recv (OpenZFS #2605)
+    # https://github.com/zfsonlinux/zfs/commit/47dfff3b86c67c6ae184c2b7166eaa529590c2d2
+    #
+    #IF ZOL_VERSION >= XXX:
+    #    def send_resume(self, fd, token, flags=None):
+    #        cdef libzfs.sendflags_t cflags
 
-            memset(&cflags, 0, cython.sizeof(libzfs.sendflags_t))
+    #        memset(&cflags, 0, cython.sizeof(libzfs.sendflags_t))
 
-            if flags:
-                convert_sendflags(flags, &cflags)
+    #        if flags:
+    #            convert_sendflags(flags, &cflags)
 
-            if libzfs.zfs_send_resume(self.handle, &cflags, fd, token) != 0:
-                raise ZFSException(self.errno, self.errstr)
+    #        if libzfs.zfs_send_resume(self.handle, &cflags, fd, token) != 0:
+    #            raise ZFSException(self.errno, self.errstr)
 
-        def describe_resume_token(self, token):
-            cdef nvpair.nvlist_t *nvl
+    #    def describe_resume_token(self, token):
+    #        cdef nvpair.nvlist_t *nvl
 
-            nvl = libzfs.zfs_send_resume_token_to_nvlist(self.handle, token)
-            if nvl == NULL:
-                raise ZFSException(self.errno, self.errstr)
+    #        nvl = libzfs.zfs_send_resume_token_to_nvlist(self.handle, token)
+    #        if nvl == NULL:
+    #            raise ZFSException(self.errno, self.errstr)
 
-            return dict(NVList(<uintptr_t>nvl))
+    #        return dict(NVList(<uintptr_t>nvl))
 
 
 cdef class ZPoolProperty(object):
@@ -674,7 +664,7 @@ cdef class ZPoolProperty(object):
     property value:
         def __get__(self):
             cdef char cstr[libzfs.ZPOOL_MAXPROPLEN]
-            if libzfs.zpool_get_prop(self.pool.handle, self.propid, cstr, sizeof(cstr), NULL, False) != 0:
+            if libzfs.zpool_get_prop(self.pool.handle, self.propid, cstr, sizeof(cstr), NULL) != 0:
                 return '-'
 
             return cstr
@@ -688,7 +678,7 @@ cdef class ZPoolProperty(object):
     property rawvalue:
         def __get__(self):
             cdef char cstr[libzfs.ZPOOL_MAXPROPLEN]
-            if libzfs.zpool_get_prop(self.pool.handle, self.propid, cstr, sizeof(cstr), NULL, True) != 0:
+            if libzfs.zpool_get_prop(self.pool.handle, self.propid, cstr, sizeof(cstr), NULL) != 0:
                 return '-'
 
             return cstr
@@ -696,7 +686,7 @@ cdef class ZPoolProperty(object):
     property source:
         def __get__(self):
             cdef zfs.zprop_source_t src
-            libzfs.zpool_get_prop(self.pool.handle, self.propid, NULL, 0, &src, True)
+            libzfs.zpool_get_prop(self.pool.handle, self.propid, NULL, 0, &src)
             return PropertySource(src)
 
     property allowed_values:
@@ -1642,7 +1632,7 @@ cdef class ZFSPropertyDict(dict):
         nvl = NVList(<uintptr_t>nvlist)
 
         for x in proptypes:
-            if not zfs.zfs_prop_valid_for_type(x, self.parent.type):
+            if not zfs.zfs_prop_valid_for_type(x, self.parent.type, False):
                 continue
 
             prop = ZFSProperty.__new__(ZFSProperty)
@@ -1872,18 +1862,13 @@ cdef class ZFSDataset(object):
             free(mntpt)
             return result
 
-    def rename(self, new_name, nounmount=False, forceunmount=False):
+    def rename(self, new_name, recurse=False, forceunmount=False):
         cdef const char *command = 'zfs rename'
-        cdef libzfs.renameflags_t flags
 
-        flags.recurse = False
-        flags.nounmount = nounmount
-        flags.forceunmount = forceunmount
-
-        if libzfs.zfs_rename(self.handle, NULL, new_name, flags) != 0:
+        if libzfs.zfs_rename(self.handle, new_name, recurse, forceunmount) != 0:
             raise self.root.get_error()
 
-        self.root.write_history(command, '-f' if forceunmount else '', '-u' if nounmount else '', self.name)
+        self.root.write_history(command, '-f' if forceunmount else '', self.name)
 
     def delete(self):
         if libzfs.zfs_destroy(self.handle, True) != 0:
